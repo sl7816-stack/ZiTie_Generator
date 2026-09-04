@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>典雅書法集字帖產生器</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1e242b">
+  <link rel="apple-touch-icon" href="icon.png">
+
+  <!-- OpenCV & External Libraries -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
+  <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #f5f0eb 0%, #e6ded6 100%);
+      --card-bg: rgba(255, 255, 255, 0.85);
+      --card-border: rgba(210, 200, 190, 0.5);
+      --primary-dark: #1e242b;
+      --accent-red: #c0392b;
+      --accent-red-hover: #a93226;
+      --accent-gold: #d4ac0d;
+      --text-main: #2c3e50;
+      --text-muted: #7f8c8d;
+      --shadow-sm: 0 4px 15px rgba(0,0,0,0.05);
+      --shadow-lg: 0 10px 30px rgba(0,0,0,0.12);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      background: var(--bg-gradient);
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      color: var(--text-main);
+      touch-action: manipulation;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* Header Design */
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--primary-dark);
+      margin: 0 0 6px 0;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    header p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    /* Control Panel */
+    .panel {
+      background: var(--card-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 20px;
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      align-items: end;
+    }
+
+    .control-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-item label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--primary-dark);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-item label span.val-tag {
+      background: rgba(192, 57, 43, 0.1);
+      color: var(--accent-red);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: bold;
+    }
+
+    /* Input Controls */
+    .file-btn-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+      width: 100%;
+    }
+
+    .file-btn-wrapper input[type=file] {
+      font-size: 100px;
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .btn-custom {
+      background: white;
+      border: 1px solid #ccc;
+      color: var(--text-main);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .btn-custom:hover {
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    select, input[type="range"] {
+      width: 100%;
+      height: 38px;
+      padding: 0 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background: white;
+      font-size: 0.88rem;
+      outline: none;
+      transition: border 0.2s;
+    }
+    select:focus { border-color: var(--accent-red); }
+
+    input[type="range"] {
+      padding: 0;
+      cursor: pointer;
+      accent-color: var(--accent-red);
+    }
+
+    .btn-primary {
+      background: var(--accent-red);
+      color: white;
+      border: none;
+      height: 38px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s;
+      box-shadow: 0 4px 10px rgba(192, 57, 43, 0.25);
+    }
+    .btn-primary:hover {
+      background: var(--accent-red-hover);
+    }
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    /* Main Workspace */
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 20px;
+    }
+    @media (max-width: 868px) {
+      .workspace { grid-template-columns: 1fr; }
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+    .panel-header h3 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--primary-dark);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Left Source Preview */
+    #source-wrapper {
+      position: relative;
+      border: 2px dashed rgba(0,0,0,0.15);
+      border-radius: 8px;
+      min-height: 280px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #faf8f5;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #sourceCanvas {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Right Output Grid */
+    #grid-output-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+      gap: 12px;
+      padding: 12px;
+      background: #f0ebe5;
+      border-radius: 8px;
+      max-height: 68vh;
+      overflow-y: auto;
+    }
+
+    .char-card {
+      background: white;
+      border-radius: 8px;
+      padding: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s;
+      border: 1px solid transparent;
+    }
+    .char-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--accent-red);
+    }
+    .char-card canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+    }
+    .char-card .card-index {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: rgba(0,0,0,0.4);
+      color: white;
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 10px;
+    }
+
+    /* Loading Overlay */
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(30, 36, 43, 0.75);
+      backdrop-filter: blur(4px);
+      color: white;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s ease-in-out infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Modal Fine-tuning */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0; top: 0; width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.6);
+      backdrop-filter: blur(5px);
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background-color: #ffffff;
+      padding: 20px;
+      border-radius: var(--radius);
+      width: 320px;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+    }
+    .modal-content h3 {
+      margin-top: 0;
+      font-size: 1.1rem;
+      color: var(--primary-dark);
+    }
+    #modalCanvas {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      touch-action: none;
+      cursor: move;
+      margin-bottom: 10px;
+      background: #fafafa;
+    }
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      width: 160px;
+      margin: 10px auto;
+    }
+    .dpad button {
+      background: #f2f2f2;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 8px 0;
+      font-weight: bold;
+      cursor: pointer;
+      color: #333;
+    }
+    .dpad button:hover { background: #e0e0e0; }
+
+    .zoom-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingText">處理中，請稍候...</div>
+</div>
+
+<div class="container">
+  <header>
+    <h1>🖌️ 典雅書法集字帖產生器</h1>
+    <p>智慧無視圈點句號 · 拓本/墨跡連通域擷取 · 一鍵打包下載</p>
+  </header>
+
+  <!-- 上方控制儀表板 -->
+  <div class="panel">
+    <div class="controls-grid">
+      <div class="control-item">
+        <label>1. 上傳字帖圖片 (含 HEIC)</label>
+        <div class="file-btn-wrapper">
+          <button class="btn-custom">📁 選擇圖片檔案</button>
+          <input type="file" id="fileInput" accept="image/*,.heic,.heif">
+        </div>
+      </div>
+
+      <div class="control-item">
+        <label>2. 集字米格類型</label>
+        <select id="gridTypeSelect" onchange="renderAllCharCards()">
+          <option value="jiu_gong_ge" selected>九宮格</option>
+          <option value="mi_zi_ge">米字格</option>
+        </select>
+      </div>
+
+      <div class="control-item">
+        <label>3. 偏旁合併感度 <span class="val-tag" id="mergeVal">12px</span></label>
+        <input type="range" id="mergeThresh" min="2" max="50" value="12" oninput="debouncedProcessImage()">
+      </div>
+
+      <div class="control-item">
+        <label>4. 全局字體縮放 <span class="val-tag" id="scaleVal">80%</span></label>
+        <input type="range" id="fontScale" min="60" max="95" value="80" oninput="updateScaleLabel(this.value)">
+      </div>
+
+      <div class="control-item">
+        <button class="btn-primary" onclick="downloadZip()">📦 打包下載全部 (ZIP)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主要工作區 -->
+  <div class="workspace">
+    <!-- 左側：原圖預覽與區域框選 -->
+    <div class="panel">
+      <div class="panel-header">
+        <h3>🖼️ 原圖區域預覽</h3>
+        <button class="btn-custom" style="padding: 4px 10px; font-size: 0.75rem;" onclick="resetCropRegion()">重置框選</button>
+      </div>
+      <div id="source-wrapper">
+        <img id="srcImage" style="display:none;" crossorigin="anonymous">
+        <canvas id="sourceCanvas"></canvas>
+      </div>
+      <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px; text-align:center;">
+        💡 提示：可以在原圖上直接拖曳滑鼠/手指，僅針對選取範圍進行單字擷取。
+      </p>
+    </div>
+
+    <!-- 右側：集字成果顯示 -->
+    <div class="panel">
+      <div class="panel-header">
+        <h3>墨跡切分結果</h3>
+        <span style="font-size:0.8rem; color:var(--text-muted);" id="charCountTag">共 0 字</span>
+      </div>
+      <div id="grid-output-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 微調 Modal -->
+<div id="editModal" class="modal">
+  <div class="modal-content">
+    <h3>單字卡微調</h3>
+    <canvas id="modalCanvas" width="220" height="220"></canvas>
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">
+      💡 手指滑動位移 / 雙指捏合縮放
+    </div>
+    
+    <div class="zoom-ctrl">
+      <label style="margin:0; min-width:60px;">縮放:</label>
+      <button style="width:28px; height:28px; border-radius:4px; border:1px solid #ccc;" onclick="adjustScale(-0.05)">－</button>
+      <input type="range" id="modalScaleSlider" min="0.3" max="1.5" step="0.02" value="1.0" oninput="onModalScaleInput(this.value)">
+      <button style="width:28px; height:28px; border-radius:4px; border:1px solid #ccc;" onclick="adjustScale(0.05)">＋</button>
+    </div>
+
+    <div class="dpad">
+      <div></div><button onclick="adjustOffset(0, -4)">▲</button><div></div>
+      <button onclick="adjustOffset(-4, 0)">◄</button><button onclick="resetSingleChar()" style="font-size:11px;">重置</button><button onclick="adjustOffset(4, 0)">►</button>
+      <div></div><button onclick="adjustOffset(0, 4)">▼</button><div></div>
+    </div>
+    
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button class="btn-primary" style="background:#e74c3c; flex:1;" onclick="deleteCurrentBox()">刪除此字</button>
+      <button class="btn-custom" style="flex:1;" onclick="closeModal()">確定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let cvReady = false;
+  let finalBoxes = [];
+  let sourceImgElement = null;
+  let alphaCanvas = null;
+  let currentEditingIndex = -1;
+  let debounceTimer = null;
+
+  let cropRect = null;
+  let isSelecting = false;
+  let startX = 0, startY = 0;
+
+  let isDragging = false;
+  let lastTouchX = 0, lastTouchY = 0;
+  let initialPinchDistance = 0;
+  let initialScaleOnPinch = 1.0;
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+
+  function showLoading(msg) {
+    document.getElementById('loadingText').innerText = msg;
+    document.getElementById('loadingOverlay').style.display = 'flex';
+  }
+  function hideLoading() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+  }
+
+  function onOpenCvReady() { cvReady = true; }
+
+  function updateScaleLabel(val) {
+    document.getElementById('scaleVal').innerText = val + '%';
+    renderAllCharCards();
+  }
+
+  function debouncedProcessImage() {
+    document.getElementById('mergeVal').innerText = document.getElementById('mergeThresh').value + 'px';
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      processImage();
+    }, 150);
+  }
+
+  document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    showLoading('正在讀取圖片...');
+    let blob = file;
+
+    if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+      showLoading('轉碼 HEIC 格式中...');
+      try {
+        const conversionResult = await heic2any({ blob: file, toType: "image/jpeg" });
+        blob = Array.isArray(conversionResult) ? conversionResult[0] : conversionResult;
+      } catch (err) {
+        alert('HEIC 轉碼失敗');
+        hideLoading();
+        return;
+      }
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = document.getElementById('srcImage');
+      img.onload = () => {
+        cropRect = null;
+        drawImageToSourceCanvas(img);
+        alphaCanvas = null;
+        processImage();
+        hideLoading();
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(blob);
+  });
+
+  function drawImageToSourceCanvas(img) {
+    sourceImgElement = img;
+    const canvas = document.getElementById('sourceCanvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    if (cropRect) {
+      ctx.strokeStyle = '#c0392b';
+      ctx.lineWidth = Math.max(3, img.width * 0.006);
+      ctx.setLineDash([6, 6]);
+      ctx.strokeRect(
+        cropRect.x * canvas.width, 
+        cropRect.y * canvas.height, 
+        cropRect.w * canvas.width, 
+        cropRect.h * canvas.height
+      );
+      ctx.setLineDash([]);
+    }
+  }
+
+  function resetCropRegion() {
+    cropRect = null;
+    if (sourceImgElement) {
+      drawImageToSourceCanvas(sourceImgElement);
+      processImage();
+    }
+  }
+
+  const sCanvas = document.getElementById('sourceCanvas');
+  sCanvas.addEventListener('pointerdown', (e) => {
+    if (!sourceImgElement) return;
+    const rect = sCanvas.getBoundingClientRect();
+    startX = (e.clientX - rect.left) / rect.width;
+    startY = (e.clientY - rect.top) / rect.height;
+    isSelecting = true;
+  });
+
+  sCanvas.addEventListener('pointermove', (e) => {
+    if (!isSelecting || !sourceImgElement) return;
+    const rect = sCanvas.getBoundingClientRect();
+    let currentX = (e.clientX - rect.left) / rect.width;
+    let currentY = (e.clientY - rect.top) / rect.height;
+
+    let x = Math.min(startX, currentX);
+    let y = Math.min(startY, currentY);
+    let w = Math.abs(currentX - startX);
+    let h = Math.abs(currentY - startY);
+
+    cropRect = { x, y, w, h };
+    drawImageToSourceCanvas(sourceImgElement);
+  });
+
+  sCanvas.addEventListener('pointerup', () => {
+    if (isSelecting) {
+      isSelecting = false;
+      if (cropRect && (cropRect.w < 0.04 || cropRect.h < 0.04)) {
+        cropRect = null;
+      }
+      processImage();
+    }
+  });
+
+  function processImage() {
+    if (!cvReady || !sourceImgElement) return;
+
+    const mergeDist = parseInt(document.getElementById('mergeThresh').value);
+    const canvas = document.getElementById('sourceCanvas');
+    
+    let src = cv.imread(canvas);
+    let gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+    // 1. 二值化
+    let binary = new cv.Mat();
+    let meanVal = cv.mean(gray)[0];
+    if (meanVal < 128) {
+      cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    } else {
+      cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+    }
+
+    if (!alphaCanvas) {
+      prepareAlphaCanvas(binary);
+    }
+
+    // 2. 移除獨立的小圓點/句號 (開運算 / 輪廓面積濾除)
+    let cleanBinary = binary.clone();
+    let circleContours = new cv.MatVector();
+    let circleHierarchy = new cv.Mat();
+    cv.findContours(cleanBinary, circleContours, circleHierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+    const imgWidth = canvas.width;
+    const imgHeight = canvas.height;
+    const totalArea = imgWidth * imgHeight;
+    const dotMaxArea = totalArea * 0.0015;
+
+    for (let i = 0; i < circleContours.size(); ++i) {
+      let r = cv.boundingRect(circleContours.get(i));
+      let area = r.width * r.height;
+
+      if (area < dotMaxArea && r.width < (imgWidth * 0.03) && r.height < (imgHeight * 0.03)) {
+        let p1 = new cv.Point(r.x, r.y);
+        let p2 = new cv.Point(r.x + r.width, r.y + r.height);
+        cv.rectangle(cleanBinary, p1, p2, new cv.Scalar(0, 0, 0, 255), -1);
+      }
+    }
+
+    // 3. 抹除句點後再進行膨脹與字塊合併
+    let dilated = new cv.Mat();
+    let M = cv.Mat.ones(3, 3, cv.CV_8U); 
+    cv.dilate(cleanBinary, dilated, M);
+
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let rawBoxes = [];
+    let roiX = cropRect ? cropRect.x * imgWidth : 0;
+    let roiY = cropRect ? cropRect.y * imgHeight : 0;
+    let roiW = cropRect ? cropRect.w * imgWidth : imgWidth;
+    let roiH = cropRect ? cropRect.h * imgHeight : imgHeight;
+
+    const minCharArea = totalArea * 0.003;
+    const maxCharArea = totalArea * 0.08;
+
+    for (let i = 0; i < contours.size(); ++i) {
+      let rect = cv.boundingRect(contours.get(i));
+      let area = rect.width * rect.height;
+      let aspectRatio = rect.width / rect.height;
+
+      let inROI = (rect.x >= roiX - 5 && (rect.x + rect.width) <= (roiX + roiW + 5) &&
+                   rect.y >= roiY - 5 && (rect.y + rect.height) <= (roiY + roiH + 5));
+
+      if (inROI && area > minCharArea && area < maxCharArea && aspectRatio > 0.25 && aspectRatio < 4.0) {
+        rawBoxes.push(rect);
+      }
+    }
+
+    let mergedBoxes = [];
+    rawBoxes.sort((a, b) => a.y - b.y);
+
+    while (rawBoxes.length > 0) {
+      let current = rawBoxes.shift();
+      let merged = true;
+
+      while (merged) {
+        merged = false;
+        for (let i = 0; i < rawBoxes.length; i++) {
+          let target = rawBoxes[i];
+          
+          let closeX = (Math.max(current.x, target.x) - Math.min(current.x + current.width, target.x + target.width)) < mergeDist;
+          let closeY = (Math.max(current.y, target.y) - Math.min(current.y + current.height, target.y + target.height)) < mergeDist;
+
+          if (closeX && closeY) {
+            let minX = Math.min(current.x, target.x);
+            let minY = Math.min(current.y, target.y);
+            let maxX = Math.max(current.x + current.width, target.x + target.width);
+            let maxY = Math.max(current.y + current.height, target.y + target.height);
+            
+            let mergedWidth = maxX - minX;
+            let mergedHeight = maxY - minY;
+
+            if ((mergedWidth * mergedHeight) < maxCharArea && (mergedHeight / mergedWidth) < 1.8) {
+              current = { x: minX, y: minY, width: mergedWidth, height: mergedHeight };
+              rawBoxes.splice(i, 1);
+              merged = true;
+              break;
+            }
+          }
+        }
+      }
+      current.offsetX = 0;
+      current.offsetY = 0;
+      current.customScale = 1.0;
+      mergedBoxes.push(current);
+    }
+
+    mergedBoxes.sort((a, b) => {
+      let xDiff = (b.x + b.width / 2) - (a.x + a.width / 2);
+      if (Math.abs(xDiff) > (canvas.width * 0.08)) {
+        return xDiff;
+      }
+      return a.y - b.y;
+    });
+
+    finalBoxes = mergedBoxes;
+
+    gray.delete(); binary.delete(); cleanBinary.delete();
+    circleContours.delete(); circleHierarchy.delete();
+    dilated.delete(); M.delete(); contours.delete(); hierarchy.delete(); src.delete();
+
+    renderAllCharCards();
+  }
+
+  function prepareAlphaCanvas(binaryMat) {
+    alphaCanvas = document.createElement('canvas');
+    alphaCanvas.width = sourceImgElement.width;
+    alphaCanvas.height = sourceImgElement.height;
+    const alphaCtx = alphaCanvas.getContext('2d');
+
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = binaryMat.cols;
+    maskCanvas.height = binaryMat.rows;
+    cv.imshow(maskCanvas, binaryMat);
+    const maskCtx = maskCanvas.getContext('2d');
+    const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+
+    const transparentImgData = alphaCtx.createImageData(maskCanvas.width, maskCanvas.height);
+    const data = transparentImgData.data;
+    const mData = maskData.data;
+
+    for (let i = 0; i < mData.length; i += 4) {
+      data[i + 3] = mData[i] > 128 ? 255 : 0;
+    }
+    alphaCtx.putImageData(transparentImgData, 0, 0);
+  }
+
+  function renderAllCharCards() {
+    const container = document.getElementById('grid-output-container');
+    container.innerHTML = '';
+    document.getElementById('charCountTag').innerText = `共 ${finalBoxes.length} 字`;
+    if (!sourceImgElement || finalBoxes.length === 0) return;
+
+    const fragment = document.createDocumentFragment();
+    finalBoxes.forEach((bbox, index) => {
+      let card = document.createElement('div');
+      card.className = 'char-card';
+      card.onclick = () => openEditModal(index);
+
+      let idxBadge = document.createElement('span');
+      idxBadge.className = 'card-index';
+      idxBadge.innerText = index + 1;
+      card.appendChild(idxBadge);
+
+      let canvas = document.createElement('canvas');
+      canvas.width = 180;
+      canvas.height = 180;
+      renderSingleChar(canvas, bbox);
+
+      card.appendChild(canvas);
+      fragment.appendChild(card);
+    });
+    container.appendChild(fragment);
+  }
+
+  function renderSingleChar(canvas, bbox) {
+    const gridType = document.getElementById('gridTypeSelect').value;
+    const globalScale = parseInt(document.getElementById('fontScale').value) / 100;
+    const customScale = bbox.customScale || 1.0;
+    const finalScale = globalScale * customScale;
+
+    const cardSize = canvas.width;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cardSize, cardSize);
+
+    ctx.strokeStyle = '#c0392b'; 
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0, 0, cardSize, cardSize);
+
+    ctx.beginPath();
+    if (gridType === 'jiu_gong_ge') {
+      ctx.moveTo(cardSize / 3, 0); ctx.lineTo(cardSize / 3, cardSize);
+      ctx.moveTo((cardSize / 3) * 2, 0); ctx.lineTo((cardSize / 3) * 2, cardSize);
+      ctx.moveTo(0, cardSize / 3); ctx.lineTo(cardSize, cardSize / 3);
+      ctx.moveTo(0, (cardSize / 3) * 2); ctx.lineTo(cardSize, (cardSize / 3) * 2);
+    } else {
+      ctx.moveTo(cardSize / 2, 0); ctx.lineTo(cardSize / 2, cardSize);
+      ctx.moveTo(0, cardSize / 2); ctx.lineTo(cardSize, cardSize / 2);
+      ctx.moveTo(0, 0); ctx.lineTo(cardSize, cardSize);
+      ctx.moveTo(cardSize, 0); ctx.lineTo(0, cardSize);
+    }
+    ctx.stroke();
+
+    let maxDim = Math.max(bbox.width, bbox.height);
+    let targetSize = cardSize * finalScale;
+    let drawWidth = (bbox.width / maxDim) * targetSize;
+    let drawHeight = (bbox.height / maxDim) * targetSize;
+
+    let dx = ((cardSize - drawWidth) / 2) + (bbox.offsetX || 0);
+    let dy = ((cardSize - drawHeight) / 2) + (bbox.offsetY || 0);
+
+    ctx.drawImage(
+      alphaCanvas,
+      bbox.x, bbox.y, bbox.width, bbox.height, 
+      dx, dy, drawWidth, drawHeight
+    );
+  }
+
+  function openEditModal(index) {
+    currentEditingIndex = index;
+    const box = finalBoxes[currentEditingIndex];
+    document.getElementById('modalScaleSlider').value = box.customScale || 1.0;
+    document.getElementById('editModal').style.display = 'flex';
+    initModalTouchEvents();
+    updateModalPreview();
+  }
+
+  function closeModal() {
+    document.getElementById('editModal').style.display = 'none';
+    renderAllCharCards();
+  }
+
+  function updateModalPreview() {
+    if (currentEditingIndex < 0) return;
+    renderSingleChar(document.getElementById('modalCanvas'), finalBoxes[currentEditingIndex]);
+  }
+
+  function adjustOffset(dx, dy) {
+    if (currentEditingIndex < 0) return;
+    finalBoxes[currentEditingIndex].offsetX = (finalBoxes[currentEditingIndex].offsetX || 0) + dx;
+    finalBoxes[currentEditingIndex].offsetY = (finalBoxes[currentEditingIndex].offsetY || 0) + dy;
+    updateModalPreview();
+  }
+
+  function onModalScaleInput(val) {
+    if (currentEditingIndex < 0) return;
+    finalBoxes[currentEditingIndex].customScale = parseFloat(val);
+    updateModalPreview();
+  }
+
+  function adjustScale(delta) {
+    if (currentEditingIndex < 0) return;
+    let current = finalBoxes[currentEditingIndex].customScale || 1.0;
+    let nextScale = Math.max(0.3, Math.min(1.5, current + delta));
+    finalBoxes[currentEditingIndex].customScale = nextScale;
+    document.getElementById('modalScaleSlider').value = nextScale;
+    updateModalPreview();
+  }
+
+  function resetSingleChar() {
+    if (currentEditingIndex < 0) return;
+    finalBoxes[currentEditingIndex].offsetX = 0;
+    finalBoxes[currentEditingIndex].offsetY = 0;
+    finalBoxes[currentEditingIndex].customScale = 1.0;
+    document.getElementById('modalScaleSlider').value = 1.0;
+    updateModalPreview();
+  }
+
+  function deleteCurrentBox() {
+    if (currentEditingIndex < 0) return;
+    finalBoxes.splice(currentEditingIndex, 1);
+    closeModal();
+  }
+
+  function initModalTouchEvents() {
+    const mCanvas = document.getElementById('modalCanvas');
+    
+    mCanvas.onpointerdown = (e) => {
+      isDragging = true;
+      lastTouchX = e.clientX;
+      lastTouchY = e.clientY;
+      mCanvas.setPointerCapture(e.pointerId);
+    };
+
+    mCanvas.onpointermove = (e) => {
+      if (!isDragging || currentEditingIndex < 0) return;
+      let dx = e.clientX - lastTouchX;
+      let dy = e.clientY - lastTouchY;
+      lastTouchX = e.clientX;
+      lastTouchY = e.clientY;
+
+      finalBoxes[currentEditingIndex].offsetX = (finalBoxes[currentEditingIndex].offsetX || 0) + dx;
+      finalBoxes[currentEditingIndex].offsetY = (finalBoxes[currentEditingIndex].offsetY || 0) + dy;
+      updateModalPreview();
+    };
+
+    mCanvas.onpointerup = mCanvas.onpointercancel = (e) => {
+      isDragging = false;
+      try { mCanvas.releasePointerCapture(e.pointerId); } catch(err) {}
+    };
+
+    mCanvas.ontouchstart = (e) => {
+      if (e.touches.length === 2) {
+        isDragging = false;
+        initialPinchDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        initialScaleOnPinch = finalBoxes[currentEditingIndex].customScale || 1.0;
+      }
+    };
+
+    mCanvas.ontouchmove = (e) => {
+      if (e.touches.length === 2 && currentEditingIndex >= 0) {
+        e.preventDefault();
+        let dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (initialPinchDistance > 0) {
+          let factor = dist / initialPinchDistance;
+          let newScale = Math.max(0.3, Math.min(1.5, initialScaleOnPinch * factor));
+          finalBoxes[currentEditingIndex].customScale = newScale;
+          document.getElementById('modalScaleSlider').value = newScale;
+          updateModalPreview();
+        }
+      }
+    };
+  }
+
+  async function downloadZip() {
+    if (finalBoxes.length === 0) {
+      alert('尚無可下載的單字卡');
+      return;
+    }
+    showLoading('正在打包圖片中...');
+    const zip = new JSZip();
+    const folder = zip.folder("shufa_chars");
+
+    const cards = document.querySelectorAll('.char-card canvas');
+    cards.forEach((canvas, idx) => {
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+      folder.file(`char_${idx + 1}.png`, base64Data, {base64: true});
+    });
+
+    const content = await zip.generateAsync({type: "blob"});
+    saveAs(content, "shufa_chars.zip");
+    hideLoading();
+  }
+</script>
+</body>
+</html>
