@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>書法集字格化工具 PWA V0.02</title>
+  <title>書法集字格化工具 PWA V0.03</title>
   
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#2c3e50">
@@ -31,7 +31,7 @@
     .workspace { display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; }
     @media (max-width: 768px) { .workspace { grid-template-columns: 1fr; } }
     
-    #source-wrapper { border: 2px dashed #ccc; position: relative; overflow: hidden; background: #fafafa; cursor: crosshair; touch-action: none; }
+    #source-wrapper { border: 2px dashed #ccc; position: relative; overflow: hidden; background: #fafafa; cursor: pointer; }
     #sourceCanvas { display: block; max-width: 100%; height: auto; }
     
     #grid-output-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; padding: 10px; background: #eee; border-radius: 8px; max-height: 65vh; overflow-y: auto; }
@@ -52,7 +52,7 @@
 <div id="loadingOverlay"><div id="loadingText">處理中...</div></div>
 
 <div class="container">
-  <h1>書法集字格化工具 (PWA V0.02)</h1>
+  <h1>書法集字格化工具 (PWA V0.03)</h1>
 
   <div class="panel">
     <div class="controls">
@@ -65,7 +65,7 @@
         </select>
       </div>
       <div>
-        <label>3. 自動辨識感度 (<span id="mergeVal">40</span>px)</label>
+        <label>3. 偏旁切分感度 (<span id="mergeVal">40</span>px)</label>
         <input type="range" id="mergeThresh" min="5" max="80" value="40" oninput="debouncedProcessImage()">
       </div>
       <div>
@@ -78,7 +78,7 @@
 
   <div class="workspace">
     <div class="panel">
-      <h3>原圖預覽 (可直接拉框圈選或調整)</h3>
+      <h3>原圖預覽 (點擊框選區塊切換選取)</h3>
       <div id="source-wrapper"><canvas id="sourceCanvas"></canvas></div>
     </div>
     <div class="panel">
@@ -115,10 +115,8 @@
 </div>
 
 <script>
-  let cvReady = false, finalBoxes = [], sourceImgElement = null, rawImageCanvas = null;
-  let currentEditingIndex = -1, debounceTimer = null;
-  let selectedBoxIndex = -1, isInteraction = false, activeHandle = null;
-  let startX = 0, startY = 0, initialBox = null;
+  let cvReady = false, finalBoxes = [], rawImageCanvas = null;
+  let currentEditingIndex = -1, debounceTimer = null, selectedBoxIndex = -1;
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
@@ -151,7 +149,6 @@
     reader.onload = (evt) => {
       const img = new Image();
       img.onload = () => {
-        sourceImgElement = img;
         rawImageCanvas = document.createElement('canvas');
         rawImageCanvas.width = img.width; rawImageCanvas.height = img.height;
         rawImageCanvas.getContext('2d').drawImage(img, 0, 0);
@@ -230,103 +227,23 @@
       ctx.strokeStyle = isSel ? '#3498db' : '#e74c3c';
       ctx.lineWidth = isSel ? 4 : 2;
       ctx.strokeRect(b.x, b.y, b.width, b.height);
-
-      if (isSel) {
-        ctx.fillStyle = '#3498db';
-        let handles = getBoxHandles(b);
-        Object.values(handles).forEach(h => {
-          ctx.beginPath();
-          ctx.arc(h.x, h.y, 6, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      }
     });
   }
 
-  function getBoxHandles(b) {
-    return {
-      tl: { x: b.x, y: b.y },
-      tr: { x: b.x + b.width, y: b.y },
-      bl: { x: b.x, y: b.y + b.height },
-      br: { x: b.x + b.width, y: b.y + b.height }
-    };
-  }
-
   const sCanvas = document.getElementById('sourceCanvas');
-  function getCanvasCoords(e) {
+  sCanvas.addEventListener('click', (e) => {
+    if (!rawImageCanvas || finalBoxes.length === 0) return;
     const rect = sCanvas.getBoundingClientRect();
     const scaleX = sCanvas.width / rect.width;
     const scaleY = sCanvas.height / rect.height;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
-  }
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
-  sCanvas.addEventListener('pointerdown', (e) => {
-    if (!rawImageCanvas) return;
-    const pos = getCanvasCoords(e);
-    startX = pos.x; startY = pos.y;
-    isInteraction = true;
-
-    if (selectedBoxIndex >= 0) {
-      let handles = getBoxHandles(finalBoxes[selectedBoxIndex]);
-      for (let key in handles) {
-        if (Math.hypot(pos.x - handles[key].x, pos.y - handles[key].y) < 20) {
-          activeHandle = key;
-          initialBox = { ...finalBoxes[selectedBoxIndex] };
-          return;
-        }
-      }
-    }
-
-    let hitIndex = finalBoxes.findIndex(b => pos.x >= b.x && pos.x <= b.x + b.width && pos.y >= b.y && pos.y <= b.y + b.height);
-    if (hitIndex >= 0) {
-      selectedBoxIndex = hitIndex;
-      activeHandle = 'move';
-      initialBox = { ...finalBoxes[hitIndex] };
-    } else {
-      selectedBoxIndex = -1;
-      activeHandle = 'create';
-    }
+    let hitIndex = finalBoxes.findIndex(b => x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height);
+    selectedBoxIndex = hitIndex;
     drawSourceWithBoxes();
     highlightCard(selectedBoxIndex);
-  });
-
-  window.addEventListener('pointermove', (e) => {
-    if (!isInteraction || !rawImageCanvas) return;
-    const pos = getCanvasCoords(e);
-    const dx = pos.x - startX, dy = pos.y - startY;
-
-    if (activeHandle === 'create') {
-      let x = Math.min(startX, pos.x), y = Math.min(startY, pos.y);
-      let w = Math.abs(dx), h = Math.abs(dy);
-      if (w > 10 && h > 10) {
-        if (selectedBoxIndex === -1 || selectedBoxIndex !== finalBoxes.length - 1) {
-          finalBoxes.push({ x, y, width: w, height: h, offsetX: 0, offsetY: 0, customScale: 1.0 });
-          selectedBoxIndex = finalBoxes.length - 1;
-        } else {
-          finalBoxes[selectedBoxIndex] = { x, y, width: w, height: h, offsetX: 0, offsetY: 0, customScale: 1.0 };
-        }
-      }
-    } else if (activeHandle === 'move' && selectedBoxIndex >= 0) {
-      finalBoxes[selectedBoxIndex].x = initialBox.x + dx;
-      finalBoxes[selectedBoxIndex].y = initialBox.y + dy;
-    } else if (activeHandle && selectedBoxIndex >= 0) {
-      let b = { ...initialBox };
-      if (activeHandle.includes('r')) b.width = Math.max(10, initialBox.width + dx);
-      if (activeHandle.includes('b')) b.height = Math.max(10, initialBox.height + dy);
-      if (activeHandle.includes('l')) { let nw = initialBox.width - dx; if (nw > 10) { b.x = initialBox.x + dx; b.width = nw; } }
-      if (activeHandle.includes('t')) { let nh = initialBox.height - dy; if (nh > 10) { b.y = initialBox.y + dy; b.height = nh; } }
-      finalBoxes[selectedBoxIndex] = b;
-    }
-    drawSourceWithBoxes();
-  });
-
-  window.addEventListener('pointerup', () => {
-    if (isInteraction) {
-      isInteraction = false; activeHandle = null;
-      renderAllCharCards();
-    }
+    if (hitIndex >= 0) openEditModal(hitIndex);
   });
 
   function renderAllCharCards() {
@@ -386,7 +303,6 @@
     let dw = (bbox.width / maxDim) * targetSize, dh = (bbox.height / maxDim) * targetSize;
     let dx = ((sz - dw) / 2) + (bbox.offsetX || 0), dy = ((sz - dh) / 2) + (bbox.offsetY || 0);
 
-    // V0.02 直接讀取原圖 Canvas 繪製，完全保留墨色與宣紙質感
     ctx.drawImage(rawImageCanvas, bbox.x, bbox.y, bbox.width, bbox.height, dx, dy, dw, dh);
   }
 
